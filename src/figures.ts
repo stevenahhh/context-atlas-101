@@ -34,7 +34,7 @@ ${head("컨텍스트 예산 실험실", "FORMULA / INTERACTIVE")}
   </label>
   <label class="ctrl">설정된 compaction reserve
     <input id="reserve-tokens" type="number" min="0" max="131072" step="1" value="16384">
-    <small>하드 리밋과 grace 계산에 쓰입니다.</small>
+    <small>하드 리밋 계산에 쓰입니다. 창 끝에 비워 두는 여유 공간입니다.</small>
   </label>
   <label class="ctrl">모델 출력 한도 maxTokens
     <input id="output-tokens" type="number" min="0" max="2000000" step="1" value="32000">
