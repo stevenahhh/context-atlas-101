@@ -1,0 +1,55 @@
+07 PROMPT CACHE DISCIPLINE
+프롬프트 캐시 적중과 과금 단가
+앞 절까지의 정책은 모델에 보내는 토큰의 양을 다룬다. 효율의 두 번째 축은 보낸 토큰 가운데 얼마가 캐시 단가로 과금되느냐이다. Provider의 prompt cache는 요청의 앞부분이 직전 요청과 동일할 때 그 구간을 재사용한다. 재사용된 토큰에는 일반 입력보다 낮은 단가가 적용된다. 하네스가 관여할 수 있는 지점은 요청을 캐시 가능한 형태로 표시하는 일, 요청 사이에 앞부분을 그대로 유지하는 일, 캐시가 만료되기 전에 다음 요청을 보내도록 시간을 관리하는 일이다. 이 절은 화면에 표시되는 적중률의 정의부터 확인한다. [13]
+FOOTER · CH 표시 수치의 정의
+latestCacheHitRate =
+cacheRead / (input + cacheRead + cacheWrite)
+화면 하단 표시줄(footer)의 CH xx.x% 는 세션 누적값이 아니라 가장 최근 assistant 메시지 하나 의 비율이다. 세션 관리자는 assistant 메시지가 기록될 때마다 이 값을 다시 계산해 덮어쓴다. 비율이 10% 미만이면 footer에 표시하지 않는다.
+여기서 assistant 메시지는 사용자의 요청 단위가 아니라 provider 호출 단위이다. 한 요청 안에서 도구를 다섯 번 사용하면 assistant 메시지 다섯 개가 생기고 각각이 이 값을 갱신한다. 사용자 요청 세 번은 호출 열 번 이상일 수 있다.
+SESSION INFO 누적 수치와의 차이
+/session 정보 화면의 Cached (xx%) 는 세션 전체의 cacheRead 합계를 전체 prompt 토큰 합계로 나눈 값이다. 이 값은 첫 호출의 완전한 miss와 압축 직후의 miss를 모두 포함하므로 footer 값보다 낮게 나온다.
+두 수치는 분모의 구성이 다르므로 서로 비교해 정책의 효과를 판단할 수 없다. 특정 시점의 캐시 붕괴는 footer 값에, 세션 전체의 과금 구조는 누적값에 나타난다. 세션 정보 화면은 이와 별도로 cache waste 를 계산해 직전 요청에 있었으나 캐시에서 읽지 못한 토큰을 집계한다.
+몇 번의 호출 만에 100%에 근접하는 이유
+비율이 빠르게 수렴하는 이유는 분모의 구성에 있다. 요청 하나의 prompt는 system prompt, tool 정의, 대화 이력, 새로 추가된 메시지로 구성된다. 코딩 에이전트에서 system prompt와 tool 스키마는 수만 토큰에 이르는 고정 구간이다. 매 호출에 새로 붙는 것은 사용자 메시지 수백 토큰이나 도구 결과 수천 토큰에 그친다. 직전 호출의 prompt 전체가 다음 호출의 앞부분이 되므로 분자는 직전 분모와 거의 같아진다.
+| | 호출 | 새로 추가된 내용 | cacheRead | cacheWrite | 표시 비율
+| 1 | system + tools 30,000 · 사용자 메시지 500 | 0 | 30,500 | 0%
+| 2 | 도구 결과 3,000 | 30,500 | 3,000 | 91.0%
+| 3 | 다음 사용자 메시지 500 | 33,500 | 500 | 98.5%
+| 4 | 도구 결과 600 | 34,000 | 600 | 98.3%
+표의 토큰 수는 산식을 설명하기 위한 가정값이며 실측이 아니다. 각 호출에서 input 은 0으로 두었다. 첫 호출은 캐시 쓰기만 발생해 0%이다. 두 번째 호출부터는 직전 prompt 전체가 읽기로 잡혀 90%대에 진입한다. 이후 분모가 커질수록 새 꼬리의 비중이 줄어 99%에 가까워진다. 이 수렴은 컨텍스트 축소 정책의 성과가 아니라 prefix cache의 산술적 성질이다.
+Anthropic 경로의 체크포인트 배치
+Anthropic Messages API는 명시적인 cache_control 표시가 있는 지점까지의 prefix를 캐시한다. 이 하네스의 anthropic-messages.ts 는 요청 하나에 최대 세 종류의 체크포인트를 배치한다. [14]
+system prompt
+system 블록에 cache_control: {type: "ephemeral"} 를 붙인다. OAuth 토큰 경로에서는 Claude Code 식별 문장을 첫 블록으로 두고 그 뒤에 실제 system prompt를 둔다.
+tools
+tool 정의의 마지막 항목에 표시한다. supportsCacheControlOnTools 가 참인 모델에 한정된다. Fireworks 경유 모델은 기본적으로 제외된다.
+마지막 user 메시지
+변환된 메시지 배열의 마지막 user 또는 tool-result 메시지의 마지막 블록에 표시한다. 이번 요청의 끝에 찍힌 표시는 다음 요청에서 대화 이력 전체를 캐시 prefix로 만드는 역할을 한다.
+tool loop 보존
+마지막 메시지가 tool-result이고 그 앞이 tool-use인 연속 구간이면 직전 user 체크포인트도 함께 유지한다. 도구 결과가 붙는 동안 앞선 캐시 경계가 사라지지 않게 하기 위한 처리이다.
+effort 마커
+supportsMidConvoEffort 모델에서는 이력 뒤에 effort 수준 마커가 붙는다. 이 마커가 체크포인트를 밀어내지 않도록 실제 마지막 user 메시지를 다시 찾아 표시한다.
+캐시 보존 기간은 cacheRetention 설정으로 정한다. 기본은 short이며 Anthropic 문서상 5분 TTL에 해당한다. long은 PI_CACHE_RETENTION=long 환경 변수나 모델 설정으로 지정한다. 다만 요청 대상이 api.anthropic.com 이며 모델이 supportsLongCacheRetention 일 때에만 1시간 TTL을 요청한다. none이면 체크포인트를 붙이지 않는다. 응답의 cache_creation_input_tokens 는 cacheWrite 로, 1시간 캐시 쓰기는 cacheWrite1h 로 별도 기록한다.
+다른 provider의 캐시 방식
+체크포인트 방식은 Anthropic 계열에 한정된다. 나머지 provider는 요청에 표시를 넣는 대신 세션 식별자로 캐시 라우팅을 고정하거나, 서버가 자동으로 적용한 캐시의 사용량만 읽는다. 이 하네스는 provider마다 다른 필드를 공통 cacheRead 와 cacheWrite 로 정규화하므로, footer의 산식은 같아도 그 값이 의미하는 캐시 동작은 provider마다 다르다. [15]
+| | 경로 | 요청에 넣는 것 | 사용량 해석 | 유의점
+| Anthropic Messages | system·tools·마지막 user 블록의 cache_control | cache_read_input_tokens , cache_creation_input_tokens | TTL 5분 또는 1시간. 체크포인트 위치가 곧 캐시 경계이다.
+| OpenAI Completions / Responses / Codex | prompt_cache_key 에 세션 ID를 64자로 잘라 전달. long이면 prompt_cache_retention: 24h | prompt_tokens_details.cached_tokens . DeepSeek의 prompt_cache_hit_tokens , Kimi의 최상위 cached_tokens 도 같은 필드로 정규화 | 쓰기 토큰은 보고되지 않는 경우가 많아 cacheWrite 가 0으로 남는다. 키는 라우팅 힌트이며 캐시 경계를 지정하지 않는다.
+| Google Generative AI / Vertex | 없음. 서버의 암묵적 캐시에 의존 | cachedContentTokenCount 를 cacheRead 로, 나머지를 input 으로 계산 | TTL을 알 수 없어 TTL 기반 대기 예산이 적용되지 않는다.
+| Bedrock Converse | system과 메시지에 cachePoint . 모델이 지원하면 1시간 TTL | Anthropic과 동일한 읽기·쓰기 구분 | supportsPromptCaching 판정을 통과한 모델에 한정된다.
+| Mistral Conversations | promptCacheKey 에 세션 ID | cached_tokens 계열 필드를 정규화 | 명시적 affinity가 있으면 키를 넣지 않는다.
+표는 요청 조립 코드에서 확인한 기본 동작이다. 게이트웨이나 호환 provider는 compat 설정으로 개별 항목을 끄거나 켤 수 있으므로, 같은 API 형식이라도 모델 항목의 설정에 따라 실제 동작이 달라진다.
+캐시를 유지하기 위한 하네스 장치
+체크포인트가 캐시를 만든다면, 아래 장치들은 만들어진 캐시가 낭비되지 않도록 시간과 요청 형태를 관리한다. 앞 절의 축소 정책 가운데 히스테리시스와 결정적 변환도 같은 목적에 속한다. [16]
+270s TTL − SAFETY BUFFER TTL을 넘기지 않는 도구 대기
+promptCache.cacheAwareTimeouts 가 기본으로 켜져 있어, 전경 도구가 응답을 기다리는 시간을 모델의 캐시 TTL에서 30초를 뺀 값으로 제한한다. 5분 TTL이면 270초이다. 한도에 도달한 bash 명령은 죽이지 않고 백그라운드 세션으로 넘겨 다음 모델 호출이 캐시 만료 전에 나가게 한다. TTL을 알 수 없는 모델에는 예산이 적용되지 않는다.
+3 / $0.05 KEEPALIVE · DEFAULT OFF 유휴 중 캐시 갱신
+cache-keepalive 확장은 세션이 유휴 상태일 때 TTL 만료 전에 warm ping을 보내 캐시를 갱신한다. 기본은 꺼져 있다. 켜더라도 세션당 3회와 0.05달러 상한을 지킨다. Ping 간격은 TTL에서 30초를 뺀 안전 대기 시간에 다시 60초 여유를 둔 값이다. 직접 Anthropic 연결에서만 동작하고 대기 메시지가 있거나 에이전트가 바쁘면 중단한다. 이 확장을 켜지 않았다면 100%에 가까운 표시와는 관련이 없다.
+prefix CACHE-FRIENDLY SUMMARY 요약 요청의 prefix 재사용
+실험 기능이 켜진 경우, 요약 생성 요청은 대화를 텍스트로 직렬화하는 대신 활성 provider 컨텍스트와 정확히 일치하는 prefix를 그대로 보낸다. 요약할 구간이 현재 요청의 앞부분과 isDeepStrictEqual 로 일치할 때에만 적용된다. 이 경우 요약 요청 자체에도 캐시 단가가 적용될 여지가 있다. 일치하지 않으면 기존 직렬화 방식으로 되돌아간다.
+캐시가 깨지는 지점과 감지
+cache-stats.ts 는 assistant 메시지마다 직전 요청과 비교해 miss를 계산한다. 직전 prompt 토큰과 현재 prompt 토큰 중 작은 값에서 cacheRead 를 뺀 값이 1024토큰을 넘으면 miss로 집계한다. 이때 직전 요청 이후 경과 시간과 모델 변경 여부를 함께 기록한다. 경과 시간이 5분을 넘으면 TTL 만료를 원인 후보로 표시한다. 캐시 활동을 한 번도 보고하지 않은 provider에서는 miss를 세지 않는다.
+missedTokens = min(prevPromptTokens, promptTokens) − cacheRead
+counted if missedTokens > 1024
+구현에서 확인되는 prefix 변경 원인은 다음과 같다. 압축 적용은 활성 문맥을 통째로 바꾸므로 그 직후 호출은 새 내용으로 취급되어 miss 집계에서 제외된다. 모델 전환은 전체 prompt를 다시 과금하므로 miss로 센다. 앞 절의 축소 정책에서는 50% gate를 처음 넘는 순간, clearable 도구 결과의 최근 6개 창이 밀리는 순간, emergency latch가 켜지는 순간에 prefix 중간이 바뀐다. system prompt에는 Current date 가 포함되므로 날짜가 바뀐 뒤 prompt를 다시 조립하면 system 블록의 캐시도 새로 쓰인다.
+정책과 적중률의 관계. 높은 적중률은 체크포인트 배치와 큰 고정 prefix가 만든다. 컨텍스트 정책은 그 prefix를 불필요하게 바꾸지 않도록 설계되어 있다. 정책이 적중률을 생성한다고 서술하면 인과가 뒤바뀐다. 정책의 효과를 보려면 세션 평균이 아니라 압축 직후와 축소 단계 전환 직후 호출의 footer 값과 cache waste를 봐야 한다.

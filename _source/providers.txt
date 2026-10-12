@@ -1,0 +1,9 @@
+08 OWNERSHIP MATTERS
+Provider별 컨텍스트 소유권과 예외
+앞선 정책을 모든 모델 호출에 공통으로 적용되는 절차로 읽어서는 안 된다. 이 하네스가 요청 메시지를 직접 구성하는 경로와 SDK가 자체 세션을 유지하는 경로에서는 컨텍스트 관리의 주체가 다르다. 코드의 소유권 판정은 어느 쪽이 자동 압축을 담당하고 어떤 요청 변환을 생략할지 결정한다. 아래 표는 이 차이에 따른 주요 기본 경로를 비교한다. [11]
+| | 경로 | 요청 축소 | 선행·유휴 요약 | 주의할 경계
+| 이 하네스 일반 관리 | 기본 순서는 admission → reduction → emergency이다. | Pre-turn speculative와 유휴 warm 생성·적용 경로를 사용할 수 있다. | 각 경로의 실행은 설정, 사용량, job의 상태와 breaker 조건을 받는다.
+| OpenAI remote 대상 | 일반 reduction을 기본적으로 제외한다. 이 하네스 관리 경로의 admission과 emergency는 유지한다. | Pre-turn speculative와 임계값 미만의 idle warm은 제외한다. 임계값 이상의 local idle 경로는 유지한다. | Blocking/core 경로는 remote compaction을 먼저 시도한다. 대상 판정에 해당하는 모델에 한정된다.
+| resident Claude SDK | SDK가 컨텍스트를 소유하면 이 하네스의 축소 파이프라인은 적용하지 않는다. | 이 하네스의 자동 압축과 degradation 감시도 물러난다. | resumeMode: off 또는 compaction 모델 override가 소유권을 바꿀 수 있다. 수동 압축은 별도 경로이다.
+표는 모든 분기를 열거한 상태 전이표가 아니라 주요 경로의 기본 구분이다. Breaker fallback 같은 조건은 일반 reduction gate를 별도로 우회할 수 있다. 각 enabled 플래그의 검사 위치가 같지 않으므로, 하나의 설정으로 모든 선행·유휴 경로가 대칭적으로 제어된다고 가정해서는 안 된다.
+특히 OpenAI remote 대상이라는 표현을 모든 OpenAI 모델과 동일시하면 적용 범위를 잘못 판단하게 된다. 마찬가지로 resident Claude SDK의 기본 동작만 보고 이 하네스가 해당 provider에서 어떤 압축도 수행하지 않는다고 결론 내릴 수는 없다. 소유권을 바꾸는 설정과 수동 실행 경로가 있기 때문이다. 실제 세션의 정책은 모델 이름이 아니라 연결 방식과 compaction 설정의 조합으로 결정된다.

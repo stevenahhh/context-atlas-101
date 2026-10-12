@@ -1,0 +1,54 @@
+13 EVIDENCE & BOUNDARIES
+분석 근거와 결론의 범위
+보내는 토큰을 줄이고 보낸 토큰을 캐시 단가로 받으며
+요약 대기를 작업 시간과 겹친다.
+세 축의 실제 절감 효과는 별도 측정이 필요하다.
+효율적인 에이전트 하네스라는 관점에서 이 구현은 세 가지 변수를 각각 다른 장치로 다룬다. 요청량은 admission, reduction, emergency prune과 compaction이 줄인다. 과금 단가는 provider별 캐시 표시와 세션 키, TTL을 넘기지 않는 대기 예산, 요청 형태를 안정시키는 히스테리시스가 관리한다. 대기 시간은 speculative 생성, grace band, 유휴 warm-up이 줄이려 한다. 세 축은 서로 영향을 준다. 예를 들어 압축은 요청량을 줄이지만 그 직후 호출의 캐시를 비운다. 축소 단계의 전환도 요청량을 줄이면서 prefix를 바꾼다. 어느 한 축의 지표만으로는 하네스의 효율을 판단할 수 없다.
+분석 기준 커밋은 f81aee565f2aeb6d774c93801596e523c017c4c5 이다. 정책 디렉터리에는 TypeScript 파일 47개, 8537줄이 있으며 해당 경로의 2026-04-27 이후 이력은 216커밋으로 확인했다. 이러한 수치는 정책 구현의 범위와 변경 이력을 보여 주지만 압축 품질이나 실행 효율을 입증하는 지표로 사용할 수는 없다.
+분석에서는 정책 함수의 조건과 반환값을 읽고 실제 이벤트 훅과 호출부에서 그 값이 어떻게 소비되는지 대조했다. 관련 테스트는 기대 동작을 확인하는 보조 근거로 읽었다. 특히 함수나 주석의 이름이 암시하는 기능을 그대로 채택하지 않고 실행 경로가 그 기능을 실제로 강제하는지 확인했다. 비효율 집계와 breaker의 비연결, 유휴 생성과 적용 조건의 차이는 이 대조에서 드러난 사례이다.
+원본 코드의 테스트 실행, 실제 모델 요약 호출, cache hit·지연·비용 벤치마크는 수행하지 않았다. 보고서의 대화형 시각화는 명시된 가정 아래 공식과 상태 판정을 재현하는 설명 도구 이다. 수식을 재현했다는 사실만으로 특정 작업에서 요약 품질이 유지되거나 총비용이 감소한다고 결론 내릴 수는 없다.
+이 구현은 요청에 포함되는 정보를 규칙적으로 줄이는 방향과, 요약이 필요해지기 전에 생성을 시작해 대기의 일부를 다른 작업 시간과 겹치는 방향으로 설계되어 있다. 그 과정에서 원본 기록은 유지되지만 현재 요청의 정보는 생략된다. 선행 생성한 결과를 사용하지 못할 가능성도 남는다. 실제 효과를 평가하는 후속 검증에서는 줄어든 요청량과 함께 요약 요청 수, 폐기된 결과, 재탐색, 사용자 대기 시간을 같은 작업 조건에서 관찰해야 한다. 이는 향후 측정의 기준이며 본 보고서가 확보한 실측 결과는 아니다.
+근거의 재현 범위. 아래 원문 링크는 분석에 사용한 커밋에 고정되어 있다. 보고서는 외부 자산을 내려받지 않고 열 수 있으나 GitHub 원문을 조회하려면 인터넷 연결이 필요하다. 정책 파일의 공통 경로는 packages/coding-agent/src/core/extensions/builtin/compaction/ 이다.
+- 01 원본 복제와 provider 요청 변환 emitContext가 원본 메시지를 복제한 뒤 훅을 실행하고 buildProviderContext가 변환 결과를 provider 요청에 사용한다. 세션 원본과 요청 투영을 구분하는 근거이다.
+runner.ts:1560 agent-loop.ts:403
+- 02 실행 훅과 파이프라인 pre-turn admission, context projection, turn-end recovery, agent-end warming.
+index.ts:825 context-pipeline.ts:29
+- 03 도구 출력 admission 텍스트 예산, 60/20 발췌, 결과 내 여러 텍스트 블록의 예산 배분.
+tool-admission.ts:10 orchestration.ts:97
+- 04 일반 context reduction 50% gate, builtin 옵션, 240토큰 본문 목표, 텍스트 전용 조건, clearable 목록.
+context-reduction.ts:130 context-reduction.ts:408 context-reduction.test.ts:77
+- 05 긴급 축소와 hysteresis 95% 초과 진입·85% 이하 해제, 4096바이트와 800/400자, 출력 reserve 계산.
+emergency-prune.ts:61 tool-truncation.ts:4 extension-wiring.ts:18 hysteresis.test.ts:79
+- 06 임계값·reserve·lead·reminder 창별 baseline, 직전 yield 조정, reserve scaling, grace 경계와 generation별 안내.
+policy.ts:61 speculation-lead.ts:1 token-budget-reminder.ts:39 compaction-settings.ts:20
+- 07 선행 생성·유휴 적용·anchor 생성과 적용 조건의 분리, idle 교체 판단, append를 허용하는 경계 검증.
+idle.ts:22 index.ts:240 orchestration.ts:82 speculative.ts:428 warm-anchor.ts:17
+- 08 복원 payload의 실제 내용 본문 아닌 경로·operation·skill 이름, 선택 순서와 합산 예산.
+restoration-tracker.ts:175 restoration-tracker.ts:204
+- 09 실패 breaker와 ineffective telemetry 실패 3회·60초, success reset, ineffective 기록, 항상 허용하는 cap.
+circuit-breaker.ts:4 yield.ts:69 index.ts:768 per-turn-cap.ts:23
+- 10 무텍스트 감시와 복구 시도 turn-end 감시 창, 비-assistant reset, 사이클당 gate와 누적 시도 ceiling.
+degradation-monitor.ts:72 index.ts:986
+- 11 Provider 소유권과 예외 resident SDK stand-down, remote 대상 모델 판정과 해당 경로의 예외.
+lane-policy.ts:99 openai-remote-model.ts:62 index.ts:888 index.ts:1024
+- 12 Upstream 비교 기준 저장소가 고정한 기준은 pi v0.84.4 · f41f8046이다. 해당 compaction.ts는 1012줄이며 기본 요약 조건은 창에서 reserve 16,384를 뺀 값을 초과할 때 성립한다. 기존 설명의 ‘865줄’은 이 비교 기준과 일치하지 않는다.
+.github/upstream.json pi compaction.ts:235
+- 13 캐시 적중률의 정의와 표시 세션 관리자가 assistant 메시지마다 최근 비율을 덮어쓰고 footer는 10% 이상일 때 표시한다. 세션 정보 화면은 누적 합계와 cache waste를 별도로 계산한다.
+session-manager.ts:1172 footer.ts:185 interactive-mode.ts:8890 cache-stats.ts:56
+- 14 Anthropic 체크포인트와 TTL system·tools·마지막 user 블록의 cache_control, tool loop 시 직전 체크포인트 보존, effort 마커 이후 재표시, short/long retention 판정.
+anthropic-messages.ts:99 anthropic-messages.ts:951 anthropic-messages.ts:2015 anthropic-messages.ts:2464 prompt-cache-ttl.ts:11
+- 15 다른 provider의 캐시 키와 사용량 정규화 OpenAI 계열의 prompt_cache_key와 24시간 retention, cached_tokens 계열 필드의 통합, Google의 cachedContentTokenCount, Bedrock cachePoint, Mistral promptCacheKey.
+openai-completions.ts:1063 openai-completions.ts:1850 openai-prompt-cache.ts:1 google-generative-ai.ts:264 bedrock-converse-stream.ts:881 mistral-conversations.ts:529
+- 16 캐시 유지 장치 TTL 기반 도구 대기 예산, 기본 꺼짐인 keepalive의 회수·비용 상한, 실험 기능의 cache-friendly 요약 prefix 재사용, system prompt의 날짜 항목.
+prompt-cache-budget.ts:37 settings-manager.ts:797 cache-keepalive/index.ts:101 agent-session.ts:5455 compaction-execution.ts:218 dynamic-prompt/build.ts:63
+- 17 Codex compaction 분기와 한도 run_auto_compact의 3분기(토큰예산·원격·로컬), 한도 = 창의 90%·하드캡 95%, 요약 대상과 보존 범위, post-turn 임계값 기본 0.
+turn.rs:1488 compact.rs:78 openai_models.rs:525
+- 18 Claude Code auto-compact·context editing·캐시 /autocompact와 CLAUDE_CODE_AUTO_COMPACT_WINDOW, /compact의 동기 요약 구조와 재주입 항목, 서버 측 context editing(clear_tool_uses·clear_thinking), TTL 버킷.
+claude-code docs: context docs: context editing docs: prompt caching
+- 19 로컬 usage 관측 Claude Code 세션의 cache_read_input_tokens·cache_creation_input_tokens·ephemeral_* 필드와 context_management:null, Codex rollout의 cached_input_tokens·cache_write_input_tokens·token_count 이벤트.
+로컬 관측: ~/.claude/projects/-Users-gahn-Works-01-*/01a031de*.jsonl, ~/.codex/sessions/2026/09/20/rollout-*.jsonl, ~/.codex/config.toml
+- 20 Codex 캐시 고정 수단 모든 요청의 prompt_cache_key(세션 ID), previous_response_id 증분 델타, x-codex-turn-state 스티키 라우팅, store:false와 encrypted_content.
+client.rs:356 model-provider-info.rs:380 tool_call.rs:138
+CONTEXT ATLAS
+분석 기준 2026.09.10 · 단일 파일 / 외부 라이브러리 없음
+PDF 내려받기 처음으로 ↑
