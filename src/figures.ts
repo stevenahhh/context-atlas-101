@@ -40,10 +40,10 @@ ${head("컨텍스트 예산 실험실", "FORMULA / INTERACTIVE")}
     <input id="output-tokens" type="number" min="0" max="2000000" step="1" value="32000">
     <small>긴급 축소의 프롬프트 공간 계산에 쓰입니다. 0은 유효 값 없음입니다.</small>
   </label>
-  <div class="checks">
-    <label class="check"><input id="reserve-scaling" type="checkbox" checked> 창 크기별 reserve scaling</label>
-    <label class="check"><input id="job-pending" type="checkbox" checked> 미완성 speculative job 있음</label>
-  </div>
+  <label class="ctrl">창 크기별 reserve scaling
+    <span style="display:block;margin-top:7px"><span class="check"><input id="reserve-scaling" type="checkbox" checked> 사용</span></span>
+    <small>창의 4%를 계산하되 설정값보다 작으면 설정값을 유지합니다.</small>
+  </label>
   <div class="full">
     <div class="range-row"><label for="usage-range">판정용 컨텍스트 사용량</label><output id="usage-value">130,000 tokens · 65%</output></div>
     <input id="usage-range" type="range" min="0" max="100" step="1" value="65">
@@ -88,41 +88,6 @@ ${head("이전 상태를 기억하는 히스테리시스 판정", "HYSTERESIS / 
 </div>
 <div class="btnrow"><button class="btn" id="hysteresis-reset" type="button">90% · OFF로 초기화</button></div>
 <p class="cap">진입과 해제의 경계를 나눠 두면 사용량이 한 임계값 주변을 오갈 때 요청 형태가 반복해서 바뀌는 일을 줄일 수 있습니다. provider가 재사용할 수 있는 프롬프트 앞부분을 안정적으로 유지하려는 이유입니다.</p>
-</figure>`;
-}
-
-export function asyncTimeline(): string {
-  const C = 200000;
-  const ratio = 0.7;
-  const T = C * ratio;
-  const lead = Math.min(32768, Math.max(8192, Math.floor(T * 0.125)));
-  const reserve = Math.max(16384, Math.min(Math.floor(C * 0.04), 49152));
-  const start = T - lead;
-  const G = Math.min(T + lead, C - reserve);
-  const hard = C - reserve;
-  const p = (v: number) => Math.max(0, Math.min(100, (v / hard) * 100));
-  return `<figure class="figure" id="fig-async">
-${head("200k 창에서 선행 생성의 위치", "TIMELINE / C = 200,000")}
-<div class="tl">
-  <div><span class="k">A / SNAPSHOT</span><h4>기준점 확보</h4><p>메시지 revision과 generation, 보존할 경계를 요약의 기준으로 잡습니다.</p></div>
-  <div><span class="k">B / GENERATE</span><h4>백그라운드 생성</h4><p>요약 요청을 시작해 본래 작업이나 유휴 시간과 겹칩니다.</p></div>
-  <div><span class="k">C / VALIDATE</span><h4>현재 대화와 대조</h4><p>generation이 달라지거나 anchor가 무효면 적용하지 않습니다.</p></div>
-  <div><span class="k">D / APPLY OR HOLD</span><h4>적용 또는 보관</h4><p>유휴 적용 조건을 넘으면 적용하고, 못 넘으면 warm으로 보관합니다.</p></div>
-</div>
-<div class="tl-band" aria-hidden="true">
-  <span class="lead" style="left:${p(start)}%;width:${p(T) - p(start)}%"></span>
-  <span class="grace" style="left:${p(T)}%;width:${p(G) - p(T)}%"></span>
-  <i style="left:${p(start)}%"></i><b style="left:${p(start)}%">${num(start)} 생성 시작</b>
-  <i style="left:${p(T)}%"></i><b style="left:${p(T)}%">${num(T)} 임계값</b>
-  <i style="left:${p(G)}%"></i><b style="left:${p(G)}%">${num(G)} grace 상한</b>
-  <i style="left:${p(hard)}%"></i><b style="left:${p(hard)}%">${num(hard)} 하드 리밋</b>
-</div>
-<div class="tl-legend">
-  <span><i style="background:var(--blue-soft)"></i>생성 시작 <b>${num(start)}</b> → 임계값 <b>${num(T)}</b></span>
-  <span><i style="background:var(--amber-soft)"></i>grace 구간 임계값 <b>${num(T)}</b> → <b>${num(G)}</b></span>
-  <span><i style="background:var(--paper);border:1px solid var(--line)"></i>하드 리밋 <b>${num(hard)}</b></span>
-</div>
-<p class="cap">lead L은 임계값 T의 12.5%를 8192~32768 사이로 제한한 값입니다. 여기서는 <b>${num(lead)}</b>토큰이라 생성이 <b>${num(start)}</b>토큰에서 시작하고, 임계값을 넘긴 뒤 grace 상한 <b>${num(G)}</b>토큰까지 미완성 job에 시간을 줍니다. 가로 길이는 생성 시간이나 비용의 비율이 아닙니다.</p>
 </figure>`;
 }
 

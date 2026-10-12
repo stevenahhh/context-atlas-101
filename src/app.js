@@ -52,24 +52,20 @@
   var sim = {
     windowSize: $("window-size"), yieldMode: $("yield-mode"),
     reserve: $("reserve-tokens"), output: $("output-tokens"),
-    scaling: $("reserve-scaling"), pending: $("job-pending"), usage: $("usage-range")
+    scaling: $("reserve-scaling"), usage: $("usage-range")
   };
 
   function geometry(C, highYield, configuredReserve, maxOutput, scaleReserve) {
     var baseRatio = C <= 16000 ? 0.45 : C <= 32000 ? 0.5 : C <= 64000 ? 0.55 : C <= 128000 ? 0.6 : C <= 512000 ? 0.7 : 0.8;
     var ratio = Math.min(0.85, Math.max(0.4, baseRatio - (highYield ? 0.05 : 0)));
     var threshold = C * ratio;
-    var lead = Math.min(32768, Math.max(8192, Math.floor(threshold * 0.125)));
     var reserve = scaleReserve ? Math.max(configuredReserve, Math.min(Math.floor(C * 0.04), 49152)) : configuredReserve;
     var promptWindow = maxOutput > 0 ? C - Math.min(maxOutput, Math.floor(C * 0.5)) : C;
     return {
-      C: C, baseRatio: baseRatio, ratio: ratio, threshold: threshold, lead: lead,
+      C: C, baseRatio: baseRatio, ratio: ratio, threshold: threshold,
       reserve: reserve, promptWindow: promptWindow,
       admission: Math.min(50000, Math.max(8192, Math.floor(C * 0.05))),
       warm: C * 0.5,
-      reminder: Math.max(0, threshold - 2 * lead),
-      speculative: Math.max(0, threshold - lead),
-      grace: Math.min(threshold + lead, C - reserve),
       hard: C - reserve,
       upstream: C - configuredReserve,
       emergencyEngage: Math.floor(promptWindow * 0.95),
@@ -79,22 +75,15 @@
 
   function verdict(g, usage, pending) {
     if (g.reserve >= g.C) return { tone: "red", title: "이 조합에서는 정상 실행으로 보기 어렵습니다", body: "유효 compaction reserve가 창 크기 이상입니다. 이 설정이면 하드 리밋 판정에 곧바로 걸릴 수 있으니 reserve를 낮춰 보세요." };
-    if (usage + g.reserve >= g.C) return { tone: "red", title: "하드 리밋 분기", body: "입력 사용량과 유효 reserve의 합이 창 이상입니다. grace보다 먼저 blocking compaction 경로로 들어갑니다. 실제로 요약이 적용되는지는 job 결과, 소유권, 실패 상태라는 추가 조건을 더 봐야 합니다." };
-    if (usage >= g.threshold) {
-      if (pending && usage < g.grace) return { tone: "blue", title: "임계값 도달 · grace로 blocking 유예", body: "미완성 job이 있고 grace 상한보다 아래이므로 proactive blocking을 미룹니다. 이미 완료된 job에는 이 유예가 적용되지 않습니다." };
-      return { tone: "amber", title: "Proactive blocking 분기", body: pending ? "요약 임계값 이상이고 grace 상한에도 도달했습니다. blocking 경로가 기존 job을 기다리거나 그 결과를 소비할 수 있습니다." : "요약 임계값 이상이고 미완성 job이 없습니다. grace 유예 없이 blocking 경로를 실행합니다." };
-    }
-    if (usage >= g.speculative) return { tone: "blue", title: pending ? "Speculative 구간 · 기존 job 유지" : "Speculative 생성 시작 조건 충족", body: pending ? "이미 job이 있으면 중복해서 새로 만들지 않습니다." : "임계값에서 lead만큼 앞선 지점에 도달했습니다. 이 예시의 일반 관리 경로에서는 요약을 백그라운드로 시작할 수 있습니다." };
-    if (usage >= g.warm) return { tone: "green", title: "아직 pre-turn speculative 시작점 전", body: "여기서는 아직 선행 생성을 시작하지 않습니다. 다만 50% reduction gate와 agent_end의 유휴 warm 하한에는 도달했습니다." };
-    return { tone: "green", title: "어느 임계값에도 닿지 않았습니다", body: "이 입력에서는 하드 리밋, proactive, speculative 분기의 시작 조건에 도달하지 않았습니다. 크기를 넘는 도구 출력을 자르는 admission은 이와 별개로 매 요청 동작할 수 있습니다." };
+    if (usage + g.reserve >= g.C) return { tone: "red", title: "하드 리밋 분기", body: "입력 사용량과 유효 reserve의 합이 창 이상입니다. 요약 임계값 판정보다 이 조건이 먼저 걸리므로, blocking compaction 경로로 들어갑니다. 실제로 요약이 적용되는지는 job 결과와 소유권, 실패 상태라는 추가 조건을 더 봐야 합니다." };
+    if (usage >= g.threshold) return { tone: "amber", title: "요약 임계값 도달", body: "적응 임계값 이상입니다. 여기서 요약(컴팩션)을 시작할 조건이 성립합니다. 조건이 성립했다는 사실만으로 즉시 실행이 확정되지는 않습니다." };
+    if (usage >= g.warm) return { tone: "blue", title: "규칙 축소가 동작하는 구간", body: "창의 절반을 넘었으므로 일반 context-reduction의 50% 관문이 열립니다. 오래된 답변을 자르고, 오래된 도구 결과를 비웁니다. 요약 임계값에는 아직 닿지 않았습니다." };
+    return { tone: "green", title: "어느 임계값에도 닿지 않았습니다", body: "이 입력에서는 하드 리밋과 요약 임계값에 도달하지 않았고, 50% 축소 관문도 아직 열리지 않았습니다. 크기를 넘는 도구 출력을 자르는 admission은 이와 별개로 매 요청 동작할 수 있습니다." };
   }
 
   var ROW_DEFS = [
-    ["warm", "축소 · 유휴 warm 하한 (창의 50%)", "var(--green)"],
-    ["reminder", "토큰 예산 리마인더 시작", "var(--blue)"],
-    ["speculative", "Speculative 생성 시작 (T − lead)", "var(--blue)"],
+    ["warm", "축소 관문 (창의 50%)", "var(--green)"],
     ["threshold", "요약 임계값 T", "var(--amber)"],
-    ["grace", "Grace 상한 G", "var(--amber)"],
     ["hard", "하드 리밋 (C − reserve)", "var(--red)"],
     ["upstream", "pi 기준선 (같은 reserve 설정)", "var(--muted)"]
   ];
@@ -144,28 +133,24 @@
       });
     }
 
-    var v = verdict(g, usage, sim.pending.checked);
+    var v = verdict(g, usage);
     var stateEl = $("sim-state");
     if (stateEl) stateEl.dataset.tone = v.tone;
     var titleEl = $("sim-state-title");
     if (titleEl) titleEl.textContent = v.title;
     var bodyEl = $("sim-state-body");
-    if (bodyEl) {
-      var remaining = g.threshold - usage;
-      var inReminder = remaining > 0 && remaining <= 2 * g.lead;
-      bodyEl.textContent = v.body + (inReminder ? " 지금은 리마인더 조건 구간입니다. 임계값까지 약 " + fmt(remaining) + "토큰이 남았습니다. 실제 안내는 generation당 한 번 나갑니다." : "");
-    }
+    if (bodyEl) bodyEl.textContent = v.body;
 
+    var miniStats = [
+      ["적용 임계 비율", pct(g.ratio * 100)],
+      ["유효 compaction reserve", fmt(g.reserve)],
+      ["도구 텍스트 admission cap", fmt(g.admission)],
+      ["프롬프트용 창 P", fmt(g.promptWindow)],
+      ["긴급 축소 진입 / 해제", fmt(g.emergencyEngage) + " / " + fmt(g.emergencyRelease)]
+    ];
     var mini = $("mini-metrics");
     if (mini) {
-      var stats = [
-        ["적용 임계 비율", pct(g.ratio * 100)],
-        ["Speculative lead", fmt(g.lead)],
-        ["유효 compaction reserve", fmt(g.reserve)],
-        ["도구 텍스트 admission cap", fmt(g.admission)],
-        ["프롬프트용 창 P", fmt(g.promptWindow)],
-        ["긴급 축소 진입 / 해제", fmt(g.emergencyEngage) + " / " + fmt(g.emergencyRelease)]
-      ];
+      var stats = miniStats;
       mini.replaceChildren();
       stats.forEach(function (s) {
         var wrap = document.createElement("div");
@@ -181,7 +166,7 @@
     on($("sim-reset"), "click", function () {
       sim.windowSize.value = "200000"; sim.yieldMode.value = "base";
       sim.reserve.value = "16384"; sim.output.value = "32000";
-      sim.scaling.checked = true; sim.pending.checked = true; sim.usage.value = "65";
+      sim.scaling.checked = true; sim.usage.value = "65";
       renderSimulator();
     });
     renderSimulator();

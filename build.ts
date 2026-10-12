@@ -1,22 +1,20 @@
-import { thresholdLab, hysteresis, asyncTimeline, sessionPlayback, toolCompare } from "./src/figures";
+import { thresholdLab, hysteresis, sessionPlayback, toolCompare } from "./src/figures";
 import ctxData from "./src/data/ctx-data.json";
 import cmpData from "./src/data/cmp-data.json";
 
 const ROOT = import.meta.dir;
 const CONTENT = `${ROOT}/content`;
-
+const REQUIRED = ["01", "02", "03", "04", "05", "06", "07", "08", "09", "10", "11", "12", "13"];
 const FIGURES: Record<string, () => string> = {
   "threshold-lab": thresholdLab,
   hysteresis,
-  "async-timeline": asyncTimeline,
   "session-playback": sessionPlayback,
   "tool-compare": toolCompare,
 };
 
 const EXTRA_FIGURES: Record<string, string[]> = {
-  "13-comparison": ["tool-compare"],
+  "11-comparison": ["tool-compare"],
 };
-
 const BOX_TYPES = new Set(["analogy", "term", "note", "warn"]);
 
 type Box = { type: string; title: string; html: string };
@@ -102,9 +100,9 @@ async function loadChapters(): Promise<Chapter[]> {
   files.sort();
 
   const missing: string[] = [];
-  for (let n = 1; n <= 15; n++) {
-    const p = String(n).padStart(2, "0");
-    if (!files.some((f) => f.startsWith(p))) missing.push(p);
+  const present = files.map((f) => f.slice(0, 2));
+  for (const need of REQUIRED) {
+    if (!present.includes(need)) missing.push(need);
   }
   if (missing.length && process.env.ATLAS_ALLOW_PARTIAL !== "1") {
     throw new Error(`missing chapter files for: ${missing.join(", ")}`);
@@ -158,9 +156,10 @@ const HERO = `
   <p class="eyebrow">CONTEXT ATLAS · 초심자용 다시 쓰기</p>
   <h1>에이전트는 어떻게 <em>긴 대화</em>를 견디는가</h1>
   <p class="lede">
-    원문 《컨텍스트 아틀라스: 효율적인 에이전트 하네스의 구조》는 코드에 근거해 아주 꼼꼼하게 쓴 기술 보고서입니다.
-    대신 전제 지식이 많아 처음 보는 사람은 중간에 막힙니다. 이 자료는 <strong>같은 내용을 순서부터 다시 세워, 아무 배경지식 없이도 끝까지 읽히도록 다시 쓴 입문판</strong>입니다.
-    숫자와 수식은 원문 그대로 옮겼고, 어려운 말은 그 자리에서 풀었습니다.
+    모델은 지난 대화를 기억하지 않습니다. 하네스가 매번 처음부터 다시 보내야 합니다.
+    대화가 길어지면 보내는 양도 계속 늘고, 언젠가 창이 꽉 차서 더 못 보냅니다.
+    이 자료는 <strong>그때 하네스가 무엇을 어떻게 줄이는지</strong>를 다릅니다.
+    원문 《컨텍스트 아틀라스》를 순서부터 다시 세워, 아무 배경지식 없이도 끝까지 읽히도록 다시 쓴 입문판입니다.
   </p>
   <div class="hero-meta">
     <span class="pill">원문을 다시 쓴 입문판</span>
@@ -169,12 +168,17 @@ const HERO = `
     <span class="pill amber">성능 실측은 아님</span>
   </div>
   <div class="howto">
-    <h2>이렇게 읽으면 됩니다</h2>
+    <h2>이 자료가 다루는 것</h2>
+    <p style="margin:0 0 12px;font-size:14.5px;color:var(--muted)">
+      원문은 에이전트 하네스의 효율을 <b>세 축</b>(보내는 토큰의 양 · 과금 단가 · 사용자의 대기 시간)으로 나눕니다.
+      이 자료는 <b>그중 한 축, “보내는 토큰을 어떻게 줄이는가”만</b> 다룹니다. 프롬프트 캐시와 대기 시간 관리는 다루지 않습니다.
+      직접 시키는 일을 공부하는 게 목적이라면 그 두 축은 배보다 배꼽입니다.
+    </p>
     <ol>
       <li>1~3장은 준비 운동입니다. 용어가 낯설어도 여기서 다 풀어 두었으니 그냥 읽으세요.</li>
       <li>4~6장에서 큰 그림을 잡습니다. 여기까지만 이해해도 남에게 설명할 수 있습니다.</li>
-      <li>7~11장은 실제 장치입니다. 숫자가 나오면 외우지 말고 "무엇을 막으려는 장치인가"만 붙잡으세요.</li>
-      <li>12~15장은 지형과 한계입니다. 마지막 14장은 다 읽은 사람이 자주 틀리는 지점이라 꼭 보세요.</li>
+      <li>7~8장이 실제 장치입니다. <b>1층 규칙 축소</b>와 <b>2층 요약 임계값</b>을 구분하는 게 핵심입니다.</li>
+      <li>9~13장은 복원과 실패 관리, provider별 차이, 다른 도구와의 비교, 그리고 한계입니다.</li>
     </ol>
   </div>
 </section>`;
@@ -214,7 +218,7 @@ async function main() {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>컨텍스트 아틀라스 입문 — 에이전트는 어떻게 긴 대화를 견디는가</title>
-<meta name="description" content="효율적인 에이전트 하네스가 컨텍스트를 관리하는 방법을 초심자 눈높이로 다시 쓴 학습 자료. 요청 축소, 요약 임계값, 비동기 컴팩션, 프롬프트 캐시를 순서대로 설명합니다.">
+<meta name="description" content="에이전트 하네스가 모델에 보내는 토큰을 어떻게 줄이는지 초심자 눈높이로 다시 쓴 학습 자료. 규칙 기반 축소, 요약 임계값, 복원과 실패 관리를 순서대로 설명합니다.">
 <meta name="color-scheme" content="light">
 <style>${css}</style>
 </head>
@@ -224,7 +228,7 @@ async function main() {
   <div class="masthead-in">
     <span class="brand"><span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>CONTEXT ATLAS 101</span>
     <span class="spacer"></span>
-    <span class="hint">초심자용 학습 자료 · 15장</span>
+    <span class="hint">초심자용 학습 자료 · ${chapters.length}장</span>
     <button class="toc-toggle" id="toc-toggle" type="button" aria-expanded="false" aria-controls="aside">목차</button>
   </div>
 </header>
@@ -237,6 +241,9 @@ async function main() {
     <div class="aside-note">
       <strong>무엇을 바꿨나</strong>
       원문의 순서를 "왜 → 무엇 → 어떻게"로 다시 세우고, 모든 전문용어를 처음 등장할 때 풀었습니다. 숫자·수식·조건은 원문을 그대로 옮겼습니다. 원문이 "실측이 아니다"라고 밝힌 부분은 여기서도 그대로 밝힙니다.
+      <br><br>
+      <strong>다루지 않는 것</strong>
+      원문이 다루는 세 축 중 <b>프롬프트 캐시(과금 단가)</b>와 <b>대기 시간 관리</b>는 이 자료의 범위가 아닙니다. 보내는 토큰을 줄이는 로직만 다룹니다.
       <br><br>
       <strong>원문</strong>
       <a href="https://stevenahhh.github.io/context-atlas-20261005/">stevenahhh.github.io/context-atlas-20261005</a>
